@@ -2,4 +2,4 @@
 # Deliberately NOT committed: these hold this machine's session counts, token totals
 # and per-account spend. The page degrades gracefully without them (it says so on screen).
 usage.json
-history.json
+history.jsonserver.mjs
