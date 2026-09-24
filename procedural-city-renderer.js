@@ -318,11 +318,6 @@ export function createCityRenderer({
 
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(32, innerWidth / innerHeight, 0.1, 400);
-  // The island grows as districts are added, so the camera framing and the orbit limits are
-  // scaled from the authored default (tuned for a 34-unit island) rather than hardcoded.
-  const islandScale = Math.max(1, (cityData.config?.size ?? 34) / 34);
-  const defaultCamera = [27, 24, 30].map((value) => value * islandScale);
-  camera.position.set(...(cameraPosition ? cameraPosition.map((v) => v * islandScale) : defaultCamera));
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   renderer.setSize(innerWidth, innerHeight);
@@ -332,9 +327,25 @@ export function createCityRenderer({
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
   controls.dampingFactor = 0.07;
-  controls.minDistance = 14 * Math.min(islandScale, 1.6);
-  controls.maxDistance = 70 * islandScale;
   controls.target.set(0, 0.5, 0);
+
+  // The island grows as districts are added and as fresh usage arrives, so the framing and the
+  // orbit limits are derived from the current island size rather than captured once. Recomputed
+  // whenever the city data changes.
+  let islandScale = 1;
+  let defaultCamera = [27, 24, 30];
+  let framingApplied = false;
+  function recomputeFraming() {
+    islandScale = Math.max(1, (cityData.config?.size ?? 34) / 34);
+    defaultCamera = [27, 24, 30].map((value) => value * islandScale);
+    controls.minDistance = 14 * Math.min(islandScale, 1.6);
+    controls.maxDistance = 70 * islandScale;
+    if (!framingApplied) {
+      camera.position.set(...(cameraPosition ? cameraPosition.map((v) => v * islandScale) : defaultCamera));
+      framingApplied = true;
+    }
+  }
+  recomputeFraming();
 
   const geometry = createDotGeometry();
   const material = createDotMaterial(innerHeight);
@@ -358,7 +369,7 @@ export function createCityRenderer({
   let buildDuration = 5000;
 
   /** Rebuild the point cloud in place. The camera is untouched, so toggles never jump the view. */
-  function rebuild() {
+  function rebuild({ animate = false } = {}) {
     const pal = paletteFor(state.theme);
     const definition = THEMES[state.theme];
     scene.background = new THREE.Color(definition.background);
@@ -399,17 +410,25 @@ export function createCityRenderer({
     }
     city = createPointCloud(points, geometry, material);
     scene.add(city);
-    city.geometry.instanceCount = 0; // animation ramps this up
 
     pointCount = points.length;
     lastCounts = counts;
     fullPointCount = points.length;
-    revealedCount = 0;
-    building = true;
-    buildStart = performance.now();
+
+    if (animate) {
+      revealedCount = 0;
+      building = true;
+      buildStart = performance.now();
+      city.geometry.instanceCount = 0; // the reveal loop ramps this up
+    } else {
+      // Toggling a theme or a district must be instant — not a five-second re-enactment.
+      revealedCount = fullPointCount;
+      building = false;
+      city.geometry.instanceCount = fullPointCount;
+    }
   }
 
-  rebuild();
+  rebuild({ animate: true });
 
   const resize = () => {
     camera.aspect = innerWidth / innerHeight;
@@ -455,8 +474,18 @@ export function createCityRenderer({
     get theme() { return state.theme; },
     get visible() { return state.visible ? [...state.visible] : null; },
     get districtPointCounts() { return { ...lastCounts }; },
-    islandScale,
-    defaultCamera,
+    get islandScale() { return islandScale; },
+    get defaultCamera() { return [...defaultCamera]; },
+    /**
+     * Swap in freshly generated city data — after a collect, or after an edit to city.json.
+     * This exists so callers never have to dispose and recreate the renderer, which would lose
+     * the camera and means copying properties onto a sealed object (they are getters; it throws).
+     */
+    setCityData(next) {
+      cityData = next;
+      recomputeFraming();
+      rebuild({ animate: true });
+    },
     setTheme(name) {
       if (!THEMES[name] || name === state.theme) return;
       state.theme = name;
@@ -481,3 +510,4 @@ export function createCityRenderer({
       container.removeChild(renderer.domElement);
     },
   };
+}

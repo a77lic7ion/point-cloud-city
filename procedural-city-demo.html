@@ -352,6 +352,12 @@
       collectStatus.innerHTML = '<span class="spin"></span>Collecting…';
       try {
         const res = await fetch("./api/collect", { method: "POST" });
+        const type = res.headers.get("content-type") || "";
+        // On a static host (Vercel, plain file server) there is no collector to call. Say so
+        // plainly instead of surfacing a JSON parse error from an HTML 404 page.
+        if (!res.ok || !type.includes("application/json")) {
+          throw new Error("no collector on this host — run server.mjs locally to refresh");
+        }
         const result = await res.json();
         if (result.ok) {
           // Re-read the updated usage.json
@@ -371,27 +377,13 @@
             resolved.set(project.id, { mode, share, prov });
             if (share != null) project.tokenShare = share;
           }
-          // Rebuild the city from the new data
+          // Rebuild from the new data. setCityData() keeps the camera and replays the build,
+          // instead of disposing the renderer and recreating it.
           const fresh = generateCityData(projects ? { projects } : {});
-          renderer.dispose();
-          // Re-create renderer
-          const r2 = createCityRenderer({
-            container: document.querySelector("#app"),
-            cityData: fresh,
-            theme,
-            visibleIds: selected,
-          });
-          // Point our references at the new renderer
-          renderer.scene = r2.scene;
-          renderer.camera = r2.camera;
-          renderer.renderer = r2.renderer;
-          renderer.controls = r2.controls;
-          renderer.city = r2.city;
-          renderer.pointCount = r2.pointCount;
-          renderer.defaultCamera = r2.defaultCamera;
-          renderer.districtPointCounts = r2.districtPointCounts;
           data.districts = fresh.districts;
           data.roads = fresh.roads;
+          data.config = fresh.config;
+          renderer.setCityData(fresh);
           paintLegend();
           paintFoot();
           paintCount();
