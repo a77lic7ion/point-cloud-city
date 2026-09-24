@@ -1,0 +1,393 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Procedural Point-Cloud City</title>
+  <style>
+    :root[data-theme="light"] {
+      color-scheme: light;
+      --bg: #f4efe5;
+      --panel: rgba(244,239,229,.86);
+      --line: rgba(23,26,26,.18);
+      --line-strong: rgba(23,26,26,.4);
+      --text: #171a1a;
+      --strong: #3c4440;
+      --muted: #757d75;
+      --faint: #8b938c;
+      --track: rgba(23,26,26,.1);
+      --bar: #171a1a;
+      --warn: #a08048;
+      --accent: #5faaa3;
+    }
+    :root[data-theme="dark"] {
+      color-scheme: dark;
+      --bg: #14171a;
+      --panel: rgba(20,23,26,.88);
+      --line: rgba(236,231,220,.18);
+      --line-strong: rgba(236,231,220,.45);
+      --text: #ece7dc;
+      --strong: #cdd3cb;
+      --muted: #9aa39e;
+      --faint: #7b827d;
+      --track: rgba(236,231,220,.14);
+      --bar: #ece7dc;
+      --warn: #d2a869;
+      --accent: #6fbcb4;
+    }
+    html, body { margin: 0; min-height: 100%; overflow: hidden; background: var(--bg); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text); }
+    #app { position: fixed; inset: 0; }
+    .panel { position: fixed; padding: 13px 15px; border: 1px solid var(--line); background: var(--panel); backdrop-filter: blur(7px); }
+    .hud { top: 20px; left: 22px; max-width: 300px; }
+    .eyebrow { color: var(--accent); font-size: 9px; letter-spacing: .16em; }
+    h1 { margin: 8px 0 4px; font: 600 18px/1.05 ui-sans-serif, system-ui, sans-serif; letter-spacing: -.05em; }
+    p { margin: 0; color: var(--muted); font-size: 10px; line-height: 1.45; }
+    .btns { display: flex; gap: 7px; margin-top: 11px; }
+    .btn { all: unset; cursor: pointer; font-size: 9px; letter-spacing: .1em; color: var(--muted); padding: 4px 9px; border: 1px solid var(--line); }
+    .btn:hover { color: var(--text); border-color: var(--line-strong); }
+    .count { margin-top: 10px; color: var(--strong); font-size: 10px; }
+
+    .legend { bottom: 20px; left: 22px; width: 320px; }
+    .legend-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .legend-head > span { font-size: 9px; letter-spacing: .16em; color: var(--strong); }
+    .legend-groups { margin-top: 10px; }
+    .legend-groups.collapsed { display: none; }
+    .legend-group + .legend-group { margin-top: 11px; }
+    .group-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+    .legend-group-title { font-size: 8px; letter-spacing: .14em; color: var(--faint); }
+    .group-actions { display: flex; gap: 8px; }
+    .mini { all: unset; cursor: pointer; font-size: 8px; letter-spacing: .1em; color: var(--muted); border-bottom: 1px solid transparent; }
+    .mini:hover { color: var(--text); border-bottom-color: var(--line-strong); }
+    .entry { padding: 1px 0 4px; }
+    .row { display: grid; grid-template-columns: 12px 10px 1fr auto; align-items: center; gap: 8px; font-size: 10px; cursor: pointer; }
+    .row input { appearance: none; width: 11px; height: 11px; border: 1px solid var(--line-strong); background: transparent; cursor: pointer; position: relative; margin: 0; }
+    .row input:checked::after { content: ""; position: absolute; inset: 2px; background: var(--bar); }
+    .swatch { width: 9px; height: 9px; border-radius: 50%; }
+    .nm { color: var(--strong); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .st { color: var(--faint); font-size: 9px; }
+    .entry.off .nm, .entry.off .st { opacity: .4; }
+    .entry.off .swatch { opacity: .28; }
+    .meta { margin: 2px 0 0 30px; color: var(--faint); font-size: 9px; line-height: 1.4; }
+    .meta b { color: var(--strong); font-weight: 600; font-variant-numeric: tabular-nums; }
+    .meta .blind { color: var(--warn); }
+    .bar { height: 2px; background: var(--track); margin: 4px 0 2px 30px; }
+    .bar i { display: block; height: 2px; background: var(--bar); opacity: .45; }
+    .ground-entry { padding: 1px 0 3px; }
+    .ground-entry .row { grid-template-columns: 10px 1fr auto; cursor: default; }
+    .legend-foot { margin-top: 11px; padding-top: 9px; border-top: 1px solid var(--line); font-size: 9px; color: var(--faint); line-height: 1.55; }
+    .legend-foot b { color: var(--strong); font-weight: 600; font-variant-numeric: tabular-nums; }
+    .legend-foot .warn { color: var(--warn); }
+  </style>
+  <script type="importmap">
+    { "imports": { "three": "./three.module.js" } }
+  </script>
+</head>
+<body>
+  <main id="app"></main>
+
+  <section class="panel hud">
+    <div class="eyebrow">PROCEDURAL CITY / MILESTONE 2</div>
+    <h1>Grounded district growth</h1>
+    <p>Terrain → roads → parcels → buildings → trees. Provider usage controls cluster completeness, not box size.</p>
+    <div class="btns">
+      <button class="btn" id="themeBtn" title="Toggle theme (T)">DARK</button>
+      <button class="btn" id="resetBtn" title="Reset the camera (R)">RESET VIEW</button>
+    </div>
+    <div class="count" id="count">Generating point cloud…</div>
+  </section>
+
+  <aside class="panel legend">
+    <div class="legend-head">
+      <span>INFRASTRUCTURE KEY</span>
+      <button class="mini" id="legendToggle" title="Toggle (L)">HIDE</button>
+    </div>
+    <div class="legend-groups" id="legendGroups"></div>
+    <div class="legend-foot" id="legendFoot"></div>
+  </aside>
+
+  <script type="module">
+    import { generateCityData } from "./procedural-city-data.js";
+    import { createCityRenderer, accentKey, legendHex, THEME_NAMES } from "./procedural-city-renderer.js";
+
+    const STORE = { theme: "citykit.theme", visible: "citykit.visible" };
+    const store = {
+      get(key, fallback) { try { const v = localStorage.getItem(key); return v == null ? fallback : JSON.parse(v); } catch { return fallback; } },
+      set(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* private mode */ } },
+    };
+
+    const getJSON = async (url) => {
+      try {
+        const res = await fetch(url, { cache: "no-store" });
+        return res.ok ? await res.json() : null;
+      } catch { return null; }
+    };
+
+    const cityDoc = await getJSON("./city.json");
+    const usage = await getJSON("./usage.json");
+
+    const projects = Array.isArray(cityDoc?.projects) && cityDoc.projects.length ? cityDoc.projects : undefined;
+    const providerById = new Map((usage?.providers ?? []).map((p) => [p.id, p]));
+
+    // Resolve each sourced district against its provider BEFORE generating, because the
+    // share feeds point density, parcel counts and road density — not just the label.
+    const resolved = new Map();
+    for (const project of projects ?? []) {
+      if (!project.source) continue;
+      const prov = providerById.get(project.source);
+      if (!prov) continue;
+      let share = null;
+      let mode = "no_data";
+      if (prov.status === "ok" && prov.used != null) {
+        const limit = prov.limit ?? project.reference?.full ?? null;
+        if (limit && limit > 0) {
+          share = Math.max(0, Math.min(1, prov.used / limit));
+          mode = prov.limit != null ? "of_limit" : "of_reference";
+        }
+      }
+      resolved.set(project.id, { mode, share, prov });
+      if (share != null) project.tokenShare = share;
+    }
+
+    const data = generateCityData(projects ? { projects } : {});
+
+    let theme = store.get(STORE.theme, "light");
+    if (!THEME_NAMES.includes(theme)) theme = "light";
+
+    const allIds = data.districts.map((d) => d.project.id);
+    let selected = store.get(STORE.visible, null);
+    selected = Array.isArray(selected) ? allIds.filter((id) => selected.includes(id)) : allIds.slice();
+    if (!selected.length) selected = allIds.slice();
+
+    document.documentElement.dataset.theme = theme;
+
+    const renderer = createCityRenderer({
+      container: document.querySelector("#app"),
+      cityData: data,
+      theme,
+      visibleIds: selected,
+    });
+
+    const countEl = document.querySelector("#count");
+    const groupsEl = document.querySelector("#legendGroups");
+    const footEl = document.querySelector("#legendFoot");
+    const themeBtn = document.querySelector("#themeBtn");
+
+    const band = (c) => (c < 0.4 ? "sparse" : c < 0.65 ? "partial" : "complete");
+    const compact = (n) =>
+      n >= 1e9 ? (n / 1e9).toFixed(2) + "B"
+      : n >= 1e6 ? (n / 1e6).toFixed(2) + "M"
+      : n >= 1e3 ? (n / 1e3).toFixed(1) + "k"
+      : String(Math.round(n * 1000) / 1000);
+    const fmt = (metric, value) =>
+      value == null ? "—"
+      : metric === "usd" ? "$" + value.toFixed(4)
+      : metric === "percent" ? value.toFixed(1) + "%"
+      : compact(value) + " tokens";
+
+    function paintCount() {
+      const visible = allIds.filter((id) => selected.includes(id)).length;
+      countEl.textContent =
+        `${renderer.pointCount.toLocaleString()} points · ${visible}/${allIds.length} districts shown · ${data.roads.length} roads`;
+    }
+
+    function paintLegend() {
+      const hexes = legendHex(theme);
+      const counts = renderer.districtPointCounts;
+      groupsEl.replaceChildren();
+
+      // ---- structure: one entry per provider, each with its own visibility checkbox ----
+      const structure = document.createElement("div");
+      structure.className = "legend-group";
+
+      const shead = document.createElement("div");
+      shead.className = "group-head";
+      const stitle = document.createElement("div");
+      stitle.className = "legend-group-title";
+      stitle.textContent = "STRUCTURE — ONE DISTRICT PER PROVIDER";
+      const sactions = document.createElement("div");
+      sactions.className = "group-actions";
+      for (const [label, ids, hint] of [
+        ["ALL", allIds, "Show every district"],
+        ["NONE", [], "Show the bare island — ground only"],
+      ]) {
+        const b = document.createElement("button");
+        b.className = "mini";
+        b.textContent = label;
+        b.title = hint;
+        b.addEventListener("click", () => {
+          selected = ids.slice();
+          applyVisibility();
+        });
+        sactions.append(b);
+      }
+      shead.append(stitle, sactions);
+      structure.append(shead);
+
+      for (const district of data.districts) {
+        const id = district.project.id;
+        const on = selected.includes(id);
+        const r = resolved.get(id);
+
+        const box = document.createElement("div");
+        box.className = "entry" + (on ? "" : " off");
+
+        const row = document.createElement("label");
+        row.className = "row";
+
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.checked = on;
+        cb.addEventListener("change", () => {
+          selected = cb.checked
+            ? allIds.filter((x) => x === id || selected.includes(x))
+            : selected.filter((x) => x !== id);
+          applyVisibility();   // an empty selection is legitimate — it leaves the bare island
+        });
+
+        const sw = document.createElement("span");
+        sw.className = "swatch";
+        sw.style.background = hexes[accentKey(district.project)];
+
+        const nm = document.createElement("span");
+        nm.className = "nm";
+        nm.textContent = district.project.name;
+
+        const st = document.createElement("span");
+        st.className = "st";
+        st.textContent = band(district.completeness);
+
+        row.append(cb, sw, nm, st);
+        box.append(row);
+
+        const bar = document.createElement("div");
+        bar.className = "bar";
+        const fill = document.createElement("i");
+        fill.style.width = Math.round(Math.max(0, Math.min(1, district.completeness)) * 100) + "%";
+        bar.append(fill);
+        box.append(bar);
+
+        let meta = "";
+        if (r) {
+          const { mode, share, prov } = r;
+          const shown = fmt(prov.metric, prov.used);
+          if (mode === "of_limit") meta = `<b>${shown}</b> of ${fmt(prov.metric, prov.limit)} · ${(share * 100).toFixed(0)}% of allowance`;
+          else if (mode === "of_reference") meta = `<b>${shown}</b> against a ${fmt(district.project.reference.metric, district.project.reference.full)} reference · ${(share * 100).toFixed(0)}%`;
+          else if (prov.status === "ok") meta = `<b>${shown}</b> · no allowance to measure against`;
+          else if (prov.status === "no_api") meta = `<span class="blind">no API available</span> · renders sparse on purpose`;
+          else if (prov.status === "no_key") meta = `<span class="blind">no key set</span> · ${prov.detail}`;
+          else meta = `<span class="blind">${prov.status}</span> · ${prov.detail ?? ""}`;
+        }
+        const pts = counts[id] ?? 0;
+        meta += `${meta ? " · " : ""}<b>${pts.toLocaleString()}</b> pts${on ? "" : " · hidden"}`;
+
+        const m = document.createElement("div");
+        m.className = "meta";
+        m.innerHTML = meta;
+        box.append(m);
+
+        structure.append(box);
+      }
+      groupsEl.append(structure);
+
+      // ---- ground: the shared layer, always drawn ----
+      const ground = document.createElement("div");
+      ground.className = "legend-group";
+      const ghead = document.createElement("div");
+      ghead.className = "group-head";
+      const gtitle = document.createElement("div");
+      gtitle.className = "legend-group-title";
+      gtitle.textContent = "GROUND — ALWAYS DRAWN";
+      ghead.append(gtitle);
+      ground.append(ghead);
+
+      const groundRows = [
+        [hexes.soil, "Terrain field"],
+        [hexes.soil, "Eroded island edge"],
+        [hexes.ink, "Boulevards"],
+        [hexes.softInk, "Lanes / parcel roads"],
+        [hexes.ink, "Tree canopies"],
+        [hexes.softInk, "Trunks / terrain grid"],
+      ];
+      for (const [hex, name] of groundRows) {
+        const box = document.createElement("div");
+        box.className = "ground-entry";
+        const row = document.createElement("div");
+        row.className = "row";
+        const sw = document.createElement("span");
+        sw.className = "swatch";
+        sw.style.background = hex;
+        const nm = document.createElement("span");
+        nm.className = "nm";
+        nm.textContent = name;
+        const st = document.createElement("span");
+        st.className = "st";
+        st.textContent = "—";
+        row.append(sw, nm, st);
+        box.append(row);
+        ground.append(box);
+      }
+      groupsEl.append(ground);
+    }
+
+    function paintFoot() {
+      if (!usage) {
+        footEl.innerHTML = "<b>No usage data.</b><br>usage.json not found. Run <b>python3 collect-usage.py</b>.<br>Districts fall back to authored placeholder shares.";
+        return;
+      }
+      const c = usage.state?.counters ?? null;
+      const stamp = usage.generated_at.replace("T", " ").replace("Z", " UTC");
+      const reporting = (usage.providers ?? []).filter((p) => p.status === "ok").length;
+      const blind = (usage.providers ?? []).filter((p) => p.status === "no_api" || p.status === "no_key").length;
+      footEl.innerHTML =
+        `<b>Measured: ${compact(usage.measured_total_tokens)} Hermes tokens</b><br>` +
+        (c ? `in ${compact(c.input_tokens)} · out ${compact(c.output_tokens)} · cache-read ${compact(c.cache_read_tokens)}<br>` : "") +
+        (usage.state ? `${usage.state.sessions} sessions · ` : "") +
+        `${reporting} providers reporting · ${blind} blind<br>` +
+        `<span class="warn">Provider figures are account-scoped, so they include usage from any app on that account. Districts without data keep a placeholder share.</span><br>` +
+        (usage.history?.days_tracked ? `${usage.history.days_tracked} day${usage.history.days_tracked === 1 ? "" : "s"} tracked<br>` : "") +
+        `<span style="opacity:.75">${stamp}</span>`;
+    }
+
+    function applyVisibility() {
+      renderer.setVisible(selected);
+      store.set(STORE.visible, selected);
+      paintLegend();
+      paintCount();
+    }
+
+    function applyTheme(next) {
+      theme = next;
+      document.documentElement.dataset.theme = theme;
+      renderer.setTheme(theme);
+      store.set(STORE.theme, theme);
+      themeBtn.textContent = theme === "dark" ? "LIGHT" : "DARK";
+      paintLegend();   // swatches are theme-dependent, so the key is rebuilt
+      paintCount();
+    }
+
+    themeBtn.addEventListener("click", () => applyTheme(theme === "dark" ? "light" : "dark"));
+
+    document.querySelector("#legendToggle").addEventListener("click", (e) => {
+      groupsEl.classList.toggle("collapsed");
+      e.currentTarget.textContent = groupsEl.classList.contains("collapsed") ? "SHOW" : "HIDE";
+    });
+
+    document.querySelector("#resetBtn").addEventListener("click", () => {
+      renderer.camera.position.set(...renderer.defaultCamera);
+      renderer.controls.target.set(0, 0.5, 0);
+      renderer.controls.update();
+    });
+
+    addEventListener("keydown", (e) => {
+      if (e.key === "l" || e.key === "L") document.querySelector("#legendToggle").click();
+      if (e.key === "t" || e.key === "T") themeBtn.click();
+      if (e.key === "r" || e.key === "R") document.querySelector("#resetBtn").click();
+    });
+
+    themeBtn.textContent = theme === "dark" ? "LIGHT" : "DARK";
+    paintLegend();
+    paintFoot();
+    paintCount();
+  </script>
+</body>
+</html>

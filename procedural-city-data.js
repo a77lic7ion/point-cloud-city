@@ -1,0 +1,253 @@
+// procedural-city-data.js
+// Deterministic, renderer-agnostic city graph and building-cluster data.
+
+export const CITY_CONFIG = {
+  seed: 1701,
+  size: 34,
+  terrainY: 0,
+  roadInset: 1.6,
+  parcelPadding: 0.55,
+  maxRoadDepth: 3,
+};
+
+export const PROJECTS = [
+  {
+    id: "core",
+    name: "Civic Core",
+    tokenShare: 1,
+    origin: { x: 0, z: 0 },
+    size: { width: 8.2, depth: 8.2 },
+    style: "civic",
+    accent: "ink",
+  },
+  {
+    id: "research",
+    name: "Research District",
+    tokenShare: 0.78,
+    origin: { x: -8.4, z: -7.1 },
+    size: { width: 8.8, depth: 7.2 },
+    style: "laboratory",
+    accent: "amber",
+  },
+  {
+    id: "residential",
+    name: "Residential District",
+    tokenShare: 0.62,
+    origin: { x: 8.8, z: -7.0 },
+    size: { width: 8.3, depth: 7.4 },
+    style: "residential",
+    accent: "ink",
+  },
+  {
+    id: "archive",
+    name: "Archive Gardens",
+    tokenShare: 0.48,
+    origin: { x: 8.5, z: 7.8 },
+    size: { width: 8.0, depth: 6.7 },
+    style: "archive",
+    accent: "teal",
+  },
+  {
+    id: "construction",
+    name: "Construction Quarter",
+    tokenShare: 0.32,
+    origin: { x: -8.5, z: 7.8 },
+    size: { width: 8.5, depth: 6.6 },
+    style: "industrial",
+    accent: "amber",
+  },
+];
+
+export function createRng(seed = CITY_CONFIG.seed) {
+  let state = seed >>> 0;
+  return {
+    next() {
+      state = (1664525 * state + 1013904223) >>> 0;
+      return state / 4294967296;
+    },
+    float(min, max) { return min + (max - min) * this.next(); },
+    int(min, max) { return Math.floor(this.float(min, max + 1)); },
+    pick(list) { return list[this.int(0, list.length - 1)]; },
+    fork(offset) { return createRng((state ^ offset) >>> 0); },
+  };
+}
+
+function id(prefix, index) {
+  return `${prefix}_${String(index).padStart(3, "0")}`;
+}
+
+function clamp01(value) {
+  return Math.min(1, Math.max(0, value));
+}
+
+function makeRect(x, z, width, depth) {
+  return {
+    minX: x - width / 2,
+    maxX: x + width / 2,
+    minZ: z - depth / 2,
+    maxZ: z + depth / 2,
+    width,
+    depth,
+  };
+}
+
+function createRoad({ kind, from, to, width, districtId, depth = 0 }) {
+  return { id: `${districtId}_${kind}_${depth}_${Math.round(from.x * 10)}_${Math.round(to.z * 10)}`, kind, from, to, width, districtId, depth };
+}
+
+export function generateRoadNetwork(projects = PROJECTS, config = CITY_CONFIG) {
+  const roads = [];
+  const bounds = config.size / 2 - config.roadInset;
+  const major = 0.42;
+  const minor = 0.2;
+
+  // The core roads are continuous across the whole island so districts feel grounded in one city.
+  roads.push(createRoad({ kind: "boulevard", from: { x: -bounds, z: 0 }, to: { x: bounds, z: 0 }, width: major, districtId: "city" }));
+  roads.push(createRoad({ kind: "boulevard", from: { x: 0, z: -bounds }, to: { x: 0, z: bounds }, width: major, districtId: "city" }));
+  roads.push(createRoad({ kind: "ring", from: { x: -8.6, z: -5.5 }, to: { x: 8.6, z: -5.5 }, width: minor, districtId: "city" }));
+  roads.push(createRoad({ kind: "ring", from: { x: -8.6, z: 5.7 }, to: { x: 8.6, z: 5.7 }, width: minor, districtId: "city" }));
+  roads.push(createRoad({ kind: "ring", from: { x: -5.7, z: -8.7 }, to: { x: -5.7, z: 8.7 }, width: minor, districtId: "city" }));
+  roads.push(createRoad({ kind: "ring", from: { x: 5.7, z: -8.7 }, to: { x: 5.7, z: 8.7 }, width: minor, districtId: "city" }));
+
+  projects.filter((project) => project.id !== "core").forEach((project) => {
+    const district = makeRect(project.origin.x, project.origin.z, project.size.width, project.size.depth);
+    const rng = createRng(config.seed + project.origin.x * 19 + project.origin.z * 31);
+    const horizontalCount = project.tokenShare > 0.55 ? 2 : 1;
+    const verticalCount = project.tokenShare > 0.45 ? 2 : 1;
+    for (let i = 1; i <= horizontalCount; i++) {
+      const z = district.minZ + (i / (horizontalCount + 1)) * district.depth;
+      roads.push(createRoad({ kind: "lane", from: { x: district.minX, z }, to: { x: district.maxX, z: z + rng.float(-0.25, 0.25) }, width: 0.14, districtId: project.id, depth: 1 }));
+    }
+    for (let i = 1; i <= verticalCount; i++) {
+      const x = district.minX + (i / (verticalCount + 1)) * district.width;
+      roads.push(createRoad({ kind: "lane", from: { x, z: district.minZ }, to: { x: x + rng.float(-0.25, 0.25), z: district.maxZ }, width: 0.14, districtId: project.id, depth: 1 }));
+    }
+  });
+
+  return roads;
+}
+
+const STYLE_RULES = {
+  civic: { minHeight: 1.2, maxHeight: 6.8, minFootprint: 1.8, maxFootprint: 3.2, density: 0.86, landmarkChance: 0.3 },
+  laboratory: { minHeight: 0.8, maxHeight: 4.8, minFootprint: 1.2, maxFootprint: 2.7, density: 0.74, landmarkChance: 0.16 },
+  residential: { minHeight: 0.7, maxHeight: 3.8, minFootprint: 0.9, maxFootprint: 2.0, density: 0.92, landmarkChance: 0.08 },
+  archive: { minHeight: 0.6, maxHeight: 3.7, minFootprint: 1.0, maxFootprint: 2.4, density: 0.57, landmarkChance: 0.24 },
+  industrial: { minHeight: 0.5, maxHeight: 3.2, minFootprint: 1.2, maxFootprint: 2.9, density: 0.6, landmarkChance: 0.1 },
+};
+
+function makeParcel(project, index, rng) {
+  const cols = project.size.width > 8 ? 3 : 2;
+  const rows = project.size.depth > 7 ? 3 : 2;
+  const col = index % cols;
+  const row = Math.floor(index / cols);
+  const cellWidth = project.size.width / cols;
+  const cellDepth = project.size.depth / rows;
+  const x = project.origin.x - project.size.width / 2 + cellWidth * (col + 0.5) + rng.float(-0.4, 0.4);
+  const z = project.origin.z - project.size.depth / 2 + cellDepth * (row + 0.5) + rng.float(-0.4, 0.4);
+  return makeRect(x, z, cellWidth - 0.7, cellDepth - 0.7);
+}
+
+function createBuilding(project, parcel, index, rng) {
+  const rules = STYLE_RULES[project.style];
+  const completeness = clamp01(project.tokenShare);
+  const isLandmark = rng.next() < rules.landmarkChance;
+  const width = rng.float(rules.minFootprint, Math.min(rules.maxFootprint, parcel.width));
+  const depth = rng.float(rules.minFootprint, Math.min(rules.maxFootprint, parcel.depth));
+  const heightBias = isLandmark ? 1.35 : 1;
+  const height = rng.float(rules.minHeight, rules.maxHeight) * heightBias;
+  const builtFraction = clamp01(0.22 + completeness * 0.78 + rng.float(-0.13, 0.09));
+
+  return {
+    id: id(`${project.id}_building`, index),
+    projectId: project.id,
+    family: isLandmark ? (project.style === "archive" ? "dome" : "tower") : rng.pick(["block", "courtyard", "terrace"]),
+    center: { x: parcel.minX + parcel.width / 2, z: parcel.minZ + parcel.depth / 2 },
+    footprint: { width, depth },
+    height,
+    levels: Math.max(1, Math.round(height / 0.45)),
+    completeness: builtFraction,
+    landmark: isLandmark,
+    orientation: rng.float(-0.18, 0.18),
+    detailDensity: 0.25 + completeness * 0.75,
+  };
+}
+
+function createTrees(project, rng, count) {
+  const trees = [];
+  for (let i = 0; i < count; i++) {
+    trees.push({
+      id: id(`${project.id}_tree`, i),
+      projectId: project.id,
+      position: {
+        x: project.origin.x + rng.float(-project.size.width / 2, project.size.width / 2),
+        z: project.origin.z + rng.float(-project.size.depth / 2, project.size.depth / 2),
+      },
+      height: rng.float(0.32, 0.82),
+      canopy: rng.float(0.15, 0.36),
+      completeness: clamp01(project.tokenShare + rng.float(-0.18, 0.12)),
+    });
+  }
+  return trees;
+}
+
+export function generateBuildingClusters(projects = PROJECTS, config = CITY_CONFIG) {
+  const districts = [];
+  projects.forEach((project, projectIndex) => {
+    const rng = createRng(config.seed + projectIndex * 997);
+    const rules = STYLE_RULES[project.style];
+    const parcelCount = project.id === "core" ? 12 : 5 + Math.round(project.tokenShare * 8);
+    const parcels = [];
+    const buildings = [];
+    for (let index = 0; index < parcelCount; index++) {
+      const parcel = makeParcel(project, index, rng);
+      parcels.push({ id: id(`${project.id}_parcel`, index), ...parcel });
+      if (rng.next() <= rules.density || project.id === "core") {
+        buildings.push(createBuilding(project, parcel, buildings.length, rng));
+      }
+    }
+    const treeCount = project.id === "industrial" ? 4 : Math.round(4 + project.tokenShare * 18);
+    districts.push({
+      id: project.id,
+      project,
+      parcels,
+      buildings,
+      trees: createTrees(project, rng, treeCount),
+      completeness: clamp01(project.tokenShare),
+    });
+  });
+  return districts;
+}
+
+/**
+ * Grow the island to hold whatever districts exist.
+ *
+ * Without this the plot is a fixed 34x34 box: a district placed outside it simply floats off
+ * the edge in empty space. Sizing the island from the districts' real extents means adding a
+ * district EXPANDS the city rather than breaking it. Never shrinks below the authored size.
+ */
+export function fitConfig(projects = PROJECTS, config = CITY_CONFIG) {
+  let reach = 0;
+  for (const project of projects) {
+    const halfWidth = (project.size?.width ?? 6) / 2;
+    const halfDepth = (project.size?.depth ?? 6) / 2;
+    reach = Math.max(
+      reach,
+      Math.abs(project.origin?.x ?? 0) + halfWidth,
+      Math.abs(project.origin?.z ?? 0) + halfDepth,
+    );
+  }
+  if (!reach) return config;
+  const needed = (reach + 2.8) * 2;                       // shoreline margin
+  const size = Math.max(config.size, Math.ceil(needed * 2) / 2);
+  return size === config.size ? config : { ...config, size, grew: true };
+}
+
+export function generateCityData({ projects = PROJECTS, config = CITY_CONFIG } = {}) {
+  const fitted = fitConfig(projects, config);
+  return {
+    config: fitted,
+    projects,
+    roads: generateRoadNetwork(projects, fitted),
+    districts: generateBuildingClusters(projects, fitted),
+  };
+}

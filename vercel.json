@@ -1,0 +1,14 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "rewrites": [
+    { "source": "/", "destination": "/procedural-city-demo.html" }
+  ],
+  "headers": [
+    {
+      "source": "/(three\\.module\\.js|three\\.core\\.js|OrbitControls\\.js)",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
+      ]
+    }
+  ]
+}
