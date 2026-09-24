@@ -351,6 +351,11 @@ export function createCityRenderer({
   let city = null;
   let pointCount = 0;
   let lastCounts = {};
+  let revealedCount = 0;
+  let fullPointCount = 0;
+  let building = false;
+  let buildStart = 0;
+  let buildDuration = 5000;
 
   /** Rebuild the point cloud in place. The camera is untouched, so toggles never jump the view. */
   function rebuild() {
@@ -394,9 +399,14 @@ export function createCityRenderer({
     }
     city = createPointCloud(points, geometry, material);
     scene.add(city);
+    city.geometry.instanceCount = 0; // animation ramps this up
 
     pointCount = points.length;
     lastCounts = counts;
+    fullPointCount = points.length;
+    revealedCount = 0;
+    building = true;
+    buildStart = performance.now();
   }
 
   rebuild();
@@ -412,10 +422,28 @@ export function createCityRenderer({
   let raf = 0;
   const animate = () => {
     raf = requestAnimationFrame(animate);
+    // Ease the city into existence: terrain → roads → buildings, stippled into place.
+    if (building && city) {
+      const elapsed = performance.now() - buildStart;
+      const t = Math.min(1, elapsed / buildDuration);
+      // easeOutCubic — fast start, gentle landing
+      const eased = 1 - Math.pow(1 - t, 3);
+      revealedCount = Math.round(eased * fullPointCount);
+      city.geometry.instanceCount = revealedCount;
+      if (t >= 1) building = false;
+    }
     controls.update();
     renderer.render(scene, camera);
   };
   animate();
+
+  function triggerBuild() {
+    fullPointCount = city.geometry.attributes.instanceOffset.count;
+    revealedCount = 0;
+    building = true;
+    buildStart = performance.now();
+    city.geometry.instanceCount = 0;
+  }
 
   return {
     scene,
@@ -439,6 +467,7 @@ export function createCityRenderer({
       state.visible = ids ? new Set(ids) : null;
       rebuild();
     },
+    triggerBuild,
     dispose() {
       cancelAnimationFrame(raf);
       removeEventListener("resize", resize);
@@ -452,4 +481,3 @@ export function createCityRenderer({
       container.removeChild(renderer.domElement);
     },
   };
-}

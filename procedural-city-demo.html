@@ -3,38 +3,10 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Procedural Point-Cloud City</title>
+  <title>Token City</title>
   <style>
-    :root[data-theme="light"] {
-      color-scheme: light;
-      --bg: #f4efe5;
-      --panel: rgba(244,239,229,.86);
-      --line: rgba(23,26,26,.18);
-      --line-strong: rgba(23,26,26,.4);
-      --text: #171a1a;
-      --strong: #3c4440;
-      --muted: #757d75;
-      --faint: #8b938c;
-      --track: rgba(23,26,26,.1);
-      --bar: #171a1a;
-      --warn: #a08048;
-      --accent: #5faaa3;
-    }
-    :root[data-theme="dark"] {
-      color-scheme: dark;
-      --bg: #14171a;
-      --panel: rgba(20,23,26,.88);
-      --line: rgba(236,231,220,.18);
-      --line-strong: rgba(236,231,220,.45);
-      --text: #ece7dc;
-      --strong: #cdd3cb;
-      --muted: #9aa39e;
-      --faint: #7b827d;
-      --track: rgba(236,231,220,.14);
-      --bar: #ece7dc;
-      --warn: #d2a869;
-      --accent: #6fbcb4;
-    }
+    :root[data-theme="light"] { color-scheme: light; --bg: #f4efe5; --panel: rgba(244,239,229,.86); --line: rgba(23,26,26,.18); --line-strong: rgba(23,26,26,.4); --text: #171a1a; --strong: #3c4440; --muted: #757d75; --faint: #8b938c; --track: rgba(23,26,26,.1); --bar: #171a1a; --warn: #a08048; --accent: #5faaa3; }
+    :root[data-theme="dark"] { color-scheme: dark; --bg: #14171a; --panel: rgba(20,23,26,.88); --line: rgba(236,231,220,.18); --line-strong: rgba(236,231,220,.45); --text: #ece7dc; --strong: #cdd3cb; --muted: #9aa39e; --faint: #7b827d; --track: rgba(236,231,220,.14); --bar: #ece7dc; --warn: #d2a869; --accent: #6fbcb4; }
     html, body { margin: 0; min-height: 100%; overflow: hidden; background: var(--bg); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text); }
     #app { position: fixed; inset: 0; }
     .panel { position: fixed; padding: 13px 15px; border: 1px solid var(--line); background: var(--panel); backdrop-filter: blur(7px); }
@@ -46,7 +18,9 @@
     .btn { all: unset; cursor: pointer; font-size: 9px; letter-spacing: .1em; color: var(--muted); padding: 4px 9px; border: 1px solid var(--line); }
     .btn:hover { color: var(--text); border-color: var(--line-strong); }
     .count { margin-top: 10px; color: var(--strong); font-size: 10px; }
-
+    .collect-status { margin-top: 8px; color: var(--faint); font-size: 9px; line-height: 1.4; }
+    .collect-status .spin { display: inline-block; width: 8px; height: 8px; border: 1px solid var(--faint); border-top-color: transparent; border-radius: 50%; animation: spin 0.7s linear infinite; vertical-align: middle; margin-right: 5px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
     .legend { bottom: 20px; left: 22px; width: 320px; }
     .legend-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
     .legend-head > span { font-size: 9px; letter-spacing: .16em; color: var(--strong); }
@@ -86,14 +60,16 @@
   <main id="app"></main>
 
   <section class="panel hud">
-    <div class="eyebrow">PROCEDURAL CITY / MILESTONE 2</div>
-    <h1>Grounded district growth</h1>
+    <div class="eyebrow">TOKEN CITY / DENSITY MAP</div>
+    <h1>Urban point-cloud districts</h1>
     <p>Terrain → roads → parcels → buildings → trees. Provider usage controls cluster completeness, not box size.</p>
     <div class="btns">
+      <button class="btn" id="collectBtn" title="Refresh usage data now">COLLECT + BUILD</button>
       <button class="btn" id="themeBtn" title="Toggle theme (T)">DARK</button>
       <button class="btn" id="resetBtn" title="Reset the camera (R)">RESET VIEW</button>
     </div>
     <div class="count" id="count">Generating point cloud…</div>
+    <div class="collect-status" id="collectStatus"></div>
   </section>
 
   <aside class="panel legend">
@@ -122,14 +98,12 @@
       } catch { return null; }
     };
 
-    const cityDoc = await getJSON("./city.json");
-    const usage = await getJSON("./usage.json");
+    let cityDoc = await getJSON("./city.json");
+    let usage = await getJSON("./usage.json");
 
     const projects = Array.isArray(cityDoc?.projects) && cityDoc.projects.length ? cityDoc.projects : undefined;
     const providerById = new Map((usage?.providers ?? []).map((p) => [p.id, p]));
 
-    // Resolve each sourced district against its provider BEFORE generating, because the
-    // share feeds point density, parcel counts and road density — not just the label.
     const resolved = new Map();
     for (const project of projects ?? []) {
       if (!project.source) continue;
@@ -179,6 +153,8 @@
     const groupsEl = document.querySelector("#legendGroups");
     const footEl = document.querySelector("#legendFoot");
     const themeBtn = document.querySelector("#themeBtn");
+    const collectBtn = document.querySelector("#collectBtn");
+    const collectStatus = document.querySelector("#collectStatus");
 
     const band = (c) => (c < 0.4 ? "sparse" : c < 0.65 ? "partial" : "complete");
     const compact = (n) =>
@@ -203,7 +179,6 @@
       const counts = renderer.districtPointCounts;
       groupsEl.replaceChildren();
 
-      // ---- structure: one entry per provider, each with its own visibility checkbox ----
       const structure = document.createElement("div");
       structure.className = "legend-group";
 
@@ -249,7 +224,7 @@
           selected = cb.checked
             ? allIds.filter((x) => x === id || selected.includes(x))
             : selected.filter((x) => x !== id);
-          applyVisibility();   // an empty selection is legitimate — it leaves the bare island
+          applyVisibility();
         });
 
         const sw = document.createElement("span");
@@ -297,7 +272,6 @@
       }
       groupsEl.append(structure);
 
-      // ---- ground: the shared layer, always drawn ----
       const ground = document.createElement("div");
       ground.className = "legend-group";
       const ghead = document.createElement("div");
@@ -339,7 +313,7 @@
 
     function paintFoot() {
       if (!usage) {
-        footEl.innerHTML = "<b>No usage data.</b><br>usage.json not found. Run <b>python3 collect-usage.py</b>.<br>Districts fall back to authored placeholder shares.";
+        footEl.innerHTML = "<b>No usage data.</b><br>usage.json not found.<br>Districts fall back to authored placeholder shares.";
         return;
       }
       const c = usage.state?.counters ?? null;
@@ -369,10 +343,70 @@
       renderer.setTheme(theme);
       store.set(STORE.theme, theme);
       themeBtn.textContent = theme === "dark" ? "LIGHT" : "DARK";
-      paintLegend();   // swatches are theme-dependent, so the key is rebuilt
+      paintLegend();
       paintCount();
     }
 
+    async function runCollect() {
+      collectBtn.disabled = true;
+      collectStatus.innerHTML = '<span class="spin"></span>Collecting…';
+      try {
+        const res = await fetch("./api/collect", { method: "POST" });
+        const result = await res.json();
+        if (result.ok) {
+          // Re-read the updated usage.json
+          usage = await getJSON("./usage.json");
+          // Re-resolve shares against the fresh data
+          const newPid = new Map((usage?.providers ?? []).map((p) => [p.id, p]));
+          for (const project of projects ?? []) {
+            if (!project.source) continue;
+            const prov = newPid.get(project.source);
+            if (!prov) continue;
+            let share = null;
+            const mode = "no_data";
+            if (prov.status === "ok" && prov.used != null) {
+              const limit = prov.limit ?? project.reference?.full ?? null;
+              if (limit && limit > 0) share = Math.max(0, Math.min(1, prov.used / limit));
+            }
+            resolved.set(project.id, { mode, share, prov });
+            if (share != null) project.tokenShare = share;
+          }
+          // Rebuild the city from the new data
+          const fresh = generateCityData(projects ? { projects } : {});
+          renderer.dispose();
+          // Re-create renderer
+          const r2 = createCityRenderer({
+            container: document.querySelector("#app"),
+            cityData: fresh,
+            theme,
+            visibleIds: selected,
+          });
+          // Point our references at the new renderer
+          renderer.scene = r2.scene;
+          renderer.camera = r2.camera;
+          renderer.renderer = r2.renderer;
+          renderer.controls = r2.controls;
+          renderer.city = r2.city;
+          renderer.pointCount = r2.pointCount;
+          renderer.defaultCamera = r2.defaultCamera;
+          renderer.districtPointCounts = r2.districtPointCounts;
+          data.districts = fresh.districts;
+          data.roads = fresh.roads;
+          paintLegend();
+          paintFoot();
+          paintCount();
+          collectStatus.innerHTML = '<span style="color: var(--accent)">✓ Updated from live data</span>';
+        } else {
+          collectStatus.innerHTML = '<span style="color: var(--warn)">Collection failed</span>';
+        }
+      } catch (e) {
+        collectStatus.innerHTML = '<span style="color: var(--warn)">Error: ' + e.message + '</span>';
+      } finally {
+        collectBtn.disabled = false;
+      }
+    }
+
+    collectBtn.addEventListener("click", runCollect);
     themeBtn.addEventListener("click", () => applyTheme(theme === "dark" ? "light" : "dark"));
 
     document.querySelector("#legendToggle").addEventListener("click", (e) => {
