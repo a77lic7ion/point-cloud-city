@@ -150,11 +150,19 @@
 
     const data = generateCityData(projects ? { projects } : {});
 
-    let theme = store.get(STORE.theme, "light");
+    // Deep links: ?theme=dark&only=hermes,openrouter — also what makes the README
+    // screenshots reproducible. A query param overrides this load only and is never written
+    // back to storage, so it can't clobber a saved preference.
+    const query = new URLSearchParams(location.search);
+
+    let theme = query.get("theme") ?? store.get(STORE.theme, "light");
     if (!THEME_NAMES.includes(theme)) theme = "light";
 
     const allIds = data.districts.map((d) => d.project.id);
-    let selected = store.get(STORE.visible, null);
+    const queryOnly = query.get("only");
+    let selected = queryOnly
+      ? allIds.filter((id) => queryOnly.split(",").includes(id))
+      : store.get(STORE.visible, null);
     selected = Array.isArray(selected) ? allIds.filter((id) => selected.includes(id)) : allIds.slice();
     if (!selected.length) selected = allIds.slice();
 
