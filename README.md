@@ -57,15 +57,25 @@ terrain, so it never reads as architecture floating in mid-air:
 
 ## Quick start
 
-ES modules will not load over `file://` — you need a static server.
+ES modules will not load over `file://` — you need a server.
 
 ```bash
 git clone https://github.com/a77lic7ion/point-cloud-city.git
 cd point-cloud-city
-python3 -m http.server 8082 --bind 127.0.0.1
+node server.mjs          # serves the page AND the collect endpoint
 ```
 
-Then open <http://127.0.0.1:8082/procedural-city-demo.html>.
+Open <http://127.0.0.1:8221/procedural-city-demo.html>.
+
+`server.mjs` defaults to `127.0.0.1` and never `0.0.0.0`. To open it on your *phone*, give it this
+machine's LAN address (or a Tailscale address) instead:
+
+```bash
+HOST=192.168.1.79 node server.mjs      # or HOST=100.x.y.z for Tailscale
+```
+
+Any plain static server also works, but then the **COLLECT + BUILD** button has no endpoint to
+call and says so on screen. Only `server.mjs` can refresh usage on demand.
 
 Out of the box you get the authored city with placeholder completeness — the footer says as much.
 To wire in real usage:
@@ -95,10 +105,15 @@ immutable caching.
 > Without them a deployed site shows the authored city and says so on screen. Commit them only if
 > you want that data public.
 
+A static host cannot run the collector, so **COLLECT + BUILD** reports that there is no collector
+on that host rather than failing silently. To refresh a deployment, run `collect-usage.py` locally
+and commit the result (only if you want those figures public).
+
 ## Controls
 
 | Input | Action |
 |---|---|
+| **COLLECT + BUILD** | Re-read usage now and rebuild the city, with a stipple-in animation (needs `server.mjs`) |
 | `T`, or the button | Light / dark theme |
 | `L` | Show / hide the legend |
 | `R` | Reset the camera |
@@ -173,6 +188,7 @@ Deliberately unfashionable, and load-bearing — these are constraints, not defa
 | `procedural-city-renderer.js` | Renderer. Owns `THEMES`; rebuilds points in place |
 | `procedural-city-data.js` | Geometry — terrain, roads, parcels, buildings, trees. Sizes the island |
 | `city.json` | The city definition. Districts bind to providers via `source` |
+| `server.mjs` | Node server. Serves the files and exposes `POST /api/collect` for the button |
 | `collect-usage.py` | Collects Hermes + provider usage → `usage.json`, `history.json` |
 | `TARGET.md` | The design spec, including the rules that keep it honest |
 

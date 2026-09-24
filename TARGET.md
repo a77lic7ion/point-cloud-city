@@ -51,8 +51,22 @@ thing to map to, stated in the district's `evidence` field. No evidence, no dist
 | City usage snapshot | daily, 05:00 | script, no LLM | Re-reads Hermes + each provider account. Writes `usage.json` and today's `history.json` entry. |
 | City expansion | Mondays, 06:00 | agent | Decides whether the city has earned ONE new district. Adds it, with evidence, or does nothing. |
 
-Both deliver `local` — they deliberately do not notify. The city simply is further along next
-time it is looked at. One measurement per calendar day; the collector replaces today's entry
+Both scheduled jobs deliver `local` — they deliberately do not notify. The city simply is further
+along next time it is looked at.
+
+**On demand** — the COLLECT + BUILD button runs the same collector immediately through
+`POST /api/collect` and rebuilds the city. Two rules apply to that path:
+
+- **A refresh is never a reset.** The camera must stay exactly where the user left it. Rebuild the
+  points in place; never dispose the renderer and recreate it.
+- **The stipple-in animation is for arrival, not for toggling.** Play it on first load and after a
+  collect. A theme switch or a district checkbox is a filter, not a rebuild of the world, and must
+  be instant.
+
+A static host cannot run the collector. When there is no `/api/collect`, the button must say so
+plainly rather than surfacing a parse error from an HTML 404.
+
+One measurement per calendar day; the collector replaces today's entry
 rather than appending, so a day it ran five times still counts as one day. Growth is normally
 cumulative and monotonic, but a provider that resets — a new billing cycle, a topped-up balance
 — will legitimately *reduce*, and that must show honestly rather than be clamped away.
@@ -92,6 +106,7 @@ What the user sees: a city, a legend, a toggle. What the AI knows: everything ab
 | `procedural-city-renderer.js` | Renderer. Owns `THEMES`; rebuilds points in place. |
 | `procedural-city-data.js` | Geometry generator: terrain, roads, parcels, buildings, trees. |
 | `city.json` | District definition. Districts bind to providers via `source`. |
+| `server.mjs` | Node server. Serves the files and exposes `POST /api/collect` for the button. |
 | `collect-usage.py` | Collects Hermes + provider usage. Writes `usage.json`, `history.json`. |
 | `history.json` | One entry per day. The growth record. |
 | `../.local/bin/city-kit-open.sh` | Launcher — ensures the server, opens the page. |
